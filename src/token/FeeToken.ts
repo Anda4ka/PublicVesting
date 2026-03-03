@@ -4,7 +4,8 @@ import {
     Blockchain,
     BytesWriter,
     Calldata,
-    OP_20,
+    OP20,
+    OP20InitParameters,
     Revert,
 } from '@btc-vision/btc-runtime/runtime';
 
@@ -15,16 +16,30 @@ import {
  *
  * Hardcoded parameters avoid the known OPNet testnet onDeploy() bug
  * (0-byte calldata delivery), so the token is ready to use immediately
- * after deployment without an initialize() step.
+ * after deployment without a separate initialize() step.
  *
  * Deployer can mint freely via mint(to, amount).
  */
 @final
-export class FeeToken extends OP_20 {
+export class FeeToken extends OP20 {
     public constructor() {
-        // Token name, symbol, decimals, max supply
-        // Hardcoded — no calldata read to avoid testnet onDeploy bug.
-        super('Fee Token', 'FEE', 18, u256.fromString('1000000000000000000000000000'));
+        super();
+    }
+
+    /**
+     * Deployment hook — initializes token parameters once.
+     * All params are hardcoded to avoid the testnet onDeploy() 0-byte calldata bug.
+     */
+    public override onDeployment(_calldata: Calldata): void {
+        this.instantiate(
+            new OP20InitParameters(
+                u256.fromString('1000000000000000000000000000'), // 1 billion × 1e18
+                18,
+                'Fee Token',
+                'FEE',
+            ),
+            true, // skip deployer check — called from deployment context
+        );
     }
 
     /**
