@@ -6,6 +6,8 @@
     "scripts": {
         "build": "asc src/index.ts --config asconfig.json --target debug",
         "build:release": "asc src/index.ts --config asconfig.json --target release",
+        "build:token": "asc src/index_token.ts --config asconfig.json --target token-debug",
+        "build:all": "npm run build:release && npm run build:token",
         "clean": "rm -rf build/*",
         "lint": "eslint src/"
     },

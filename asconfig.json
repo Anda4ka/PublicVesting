@@ -12,6 +12,12 @@
             "sourceMap": false,
             "optimizeLevel": 3,
             "shrinkLevel": 2
+        },
+        "token-debug": {
+            "outFile": "build/feetoken.debug.wasm",
+            "textFile": "build/feetoken.debug.wat",
+            "sourceMap": true,
+            "debug": true
         }
     },
     "options": {
