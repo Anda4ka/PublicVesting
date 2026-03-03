@@ -768,6 +768,18 @@ Grand total     = 1700 = deposited ✓</div>
           <p>Must be called once by owner right after deployment. Sets the OP_20 token address used for both vesting and revenue distribution. Uses the Token Address from the config panel above. Cannot be changed after initialization.</p>
           <button class="btn btn-primary btn-full" onclick="doInitialize()">Initialize FeeVest</button>
         </div>
+        <div class="init-box" style="border-color:rgba(74,222,128,.2);background:rgba(74,222,128,.05)">
+          <h4 style="color:var(--green)">🪙 Mint FEE Tokens (deployer only)</h4>
+          <p>Mint FEE tokens to any address for testing. Only the contract deployer can call this.</p>
+          <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+            <input id="mint-to" type="text" class="addr-value" style="flex:2;min-width:200px"
+              placeholder="Recipient address (opt1p… or your wallet)" />
+            <input id="mint-amount" type="number" class="addr-value" style="flex:1;min-width:100px;max-width:160px"
+              placeholder="Amount (e.g. 10000)" value="10000" />
+          </div>
+          <button class="btn btn-success btn-full" onclick="doMint()">Mint FEE Tokens</button>
+          <div id="mint-balance" style="font-size:.78rem;color:var(--text2);margin-top:8px;min-height:1.2em"></div>
+        </div>
         <div style="font-size:.8rem;color:var(--text2);background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px;line-height:1.7;">
           After initialization all core functions are permissionless — no further owner actions required for normal protocol operation.
         </div>
@@ -1081,6 +1093,11 @@ Grand total     = 1700 = deposited ✓</div>
   const OP20_ABI = [
     { name:'increaseAllowance', type:'function', constant:false,
       inputs:[{name:'spender',type:'ADDRESS'},{name:'amount',type:'UINT256'}], outputs:[] },
+    { name:'mint', type:'function', constant:false,
+      inputs:[{name:'to',type:'ADDRESS'},{name:'amount',type:'UINT256'}],
+      outputs:[{name:'success',type:'BOOL'}] },
+    { name:'balanceOf', type:'function', constant:true,
+      inputs:[{name:'account',type:'ADDRESS'}], outputs:[{name:'balance',type:'UINT256'}] },
   ];
 
   // ─── connect ─────────────────────────────────────────────────────────────
@@ -1371,6 +1388,33 @@ Grand total     = 1700 = deposited ✓</div>
         await loadDashboard();
       }
     } catch(e) { err('depositAndVest() failed: ' + e.message); }
+  };
+
+  window.doMint = async function() {
+    if (!walletAddress || !_opnet || !_walletAddrObj) { warn('Connect wallet first'); return; }
+    const { token } = getCfg();
+    if (!token) { warn('Fill Token Address in config'); return; }
+    const toRaw  = (document.getElementById('mint-to').value.trim() || walletAddress);
+    const amount = document.getElementById('mint-amount').value.trim();
+    if (!amount || Number(amount) <= 0) { warn('Enter a mint amount'); return; }
+    try {
+      const [toAddr_, tokenHex, from] = await Promise.all([
+        toAddr(toRaw || walletAddress), resolveHex(token), getFromAddr()
+      ]);
+      if (!toAddr_) { err('Could not resolve recipient address'); return; }
+      const tok = _opnet.getContract(tokenHex || token, OP20_ABI, _provider, _network, from);
+      const amtBig = parseTokenAmount(amount);
+      if (!amtBig) { warn('Invalid amount'); return; }
+      if (await sendTx('mint()', () => tok.mint(toAddr_, amtBig))) {
+        ok(`Minted ${amount} FEE to ${toRaw.slice(0,14)}…`);
+        // Refresh balance display
+        try {
+          const balR = await tok.balanceOf(toAddr_);
+          const bal = balR?.properties?.balance ?? 0n;
+          document.getElementById('mint-balance').textContent = `Balance: ${fmt(bal)} FEE`;
+        } catch(_) {}
+      }
+    } catch(e) { err('mint() failed: ' + e.message); }
   };
 
   window.doInitialize = async function() {
