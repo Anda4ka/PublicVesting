@@ -3,15 +3,12 @@ import { ABIDataTypes, BitcoinAbiTypes, OP_NET_ABI } from 'opnet';
 export const FeeVestEvents = [];
 
 export const FeeVestAbi = [
-    // ─── Admin ───────────────────────────────────────────────────────────────
     {
         name: 'initialize',
         inputs: [{ name: 'revenueToken', type: ABIDataTypes.ADDRESS }],
         outputs: [{ name: 'success', type: ABIDataTypes.BOOL }],
         type: BitcoinAbiTypes.Function,
     },
-
-    // ─── Core — permissionless vesting creation ───────────────────────────────
     {
         name: 'depositAndVest',
         inputs: [
@@ -23,16 +20,12 @@ export const FeeVestAbi = [
         outputs: [{ name: 'success', type: ABIDataTypes.BOOL }],
         type: BitcoinAbiTypes.Function,
     },
-
-    // ─── Core — release vested tokens ────────────────────────────────────────
     {
         name: 'release',
         inputs: [],
         outputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }],
         type: BitcoinAbiTypes.Function,
     },
-
-    // ─── Core — revenue distribution ─────────────────────────────────────────
     {
         name: 'depositRevenue',
         inputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }],
@@ -45,8 +38,6 @@ export const FeeVestAbi = [
         outputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }],
         type: BitcoinAbiTypes.Function,
     },
-
-    // ─── Views ───────────────────────────────────────────────────────────────
     {
         name: 'getVesting',
         inputs: [{ name: 'beneficiary', type: ABIDataTypes.ADDRESS }],
@@ -96,7 +87,6 @@ export const FeeVestAbi = [
         outputs: [{ name: 'ownerAddress', type: ABIDataTypes.ADDRESS }],
         type: BitcoinAbiTypes.Function,
     },
-
     ...FeeVestEvents,
     ...OP_NET_ABI,
 ];

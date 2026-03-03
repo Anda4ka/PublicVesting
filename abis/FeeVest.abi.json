@@ -4,12 +4,18 @@
             "name": "initialize",
             "type": "Function",
             "payable": false,
-            "onlyOwner": true,
+            "onlyOwner": false,
             "inputs": [
-                { "name": "revenueToken", "type": "ADDRESS" }
+                {
+                    "name": "revenueToken",
+                    "type": "ADDRESS"
+                }
             ],
             "outputs": [
-                { "name": "success", "type": "BOOL" }
+                {
+                    "name": "success",
+                    "type": "BOOL"
+                }
             ]
         },
         {
@@ -18,13 +24,28 @@
             "payable": false,
             "onlyOwner": false,
             "inputs": [
-                { "name": "amount", "type": "UINT256" },
-                { "name": "beneficiary", "type": "ADDRESS" },
-                { "name": "cliffDuration", "type": "UINT256" },
-                { "name": "vestingDuration", "type": "UINT256" }
+                {
+                    "name": "amount",
+                    "type": "UINT256"
+                },
+                {
+                    "name": "beneficiary",
+                    "type": "ADDRESS"
+                },
+                {
+                    "name": "cliffDuration",
+                    "type": "UINT256"
+                },
+                {
+                    "name": "vestingDuration",
+                    "type": "UINT256"
+                }
             ],
             "outputs": [
-                { "name": "success", "type": "BOOL" }
+                {
+                    "name": "success",
+                    "type": "BOOL"
+                }
             ]
         },
         {
@@ -34,7 +55,10 @@
             "onlyOwner": false,
             "inputs": [],
             "outputs": [
-                { "name": "amount", "type": "UINT256" }
+                {
+                    "name": "amount",
+                    "type": "UINT256"
+                }
             ]
         },
         {
@@ -43,10 +67,16 @@
             "payable": false,
             "onlyOwner": false,
             "inputs": [
-                { "name": "amount", "type": "UINT256" }
+                {
+                    "name": "amount",
+                    "type": "UINT256"
+                }
             ],
             "outputs": [
-                { "name": "success", "type": "BOOL" }
+                {
+                    "name": "success",
+                    "type": "BOOL"
+                }
             ]
         },
         {
@@ -56,7 +86,10 @@
             "onlyOwner": false,
             "inputs": [],
             "outputs": [
-                { "name": "amount", "type": "UINT256" }
+                {
+                    "name": "amount",
+                    "type": "UINT256"
+                }
             ]
         },
         {
@@ -65,15 +98,36 @@
             "payable": false,
             "onlyOwner": false,
             "inputs": [
-                { "name": "beneficiary", "type": "ADDRESS" }
+                {
+                    "name": "beneficiary",
+                    "type": "ADDRESS"
+                }
             ],
             "outputs": [
-                { "name": "totalAmount", "type": "UINT256" },
-                { "name": "startBlock", "type": "UINT256" },
-                { "name": "cliffDuration", "type": "UINT256" },
-                { "name": "vestingDuration", "type": "UINT256" },
-                { "name": "released", "type": "UINT256" },
-                { "name": "releasable", "type": "UINT256" }
+                {
+                    "name": "totalAmount",
+                    "type": "UINT256"
+                },
+                {
+                    "name": "startBlock",
+                    "type": "UINT256"
+                },
+                {
+                    "name": "cliffDuration",
+                    "type": "UINT256"
+                },
+                {
+                    "name": "vestingDuration",
+                    "type": "UINT256"
+                },
+                {
+                    "name": "released",
+                    "type": "UINT256"
+                },
+                {
+                    "name": "releasable",
+                    "type": "UINT256"
+                }
             ]
         },
         {
@@ -82,10 +136,16 @@
             "payable": false,
             "onlyOwner": false,
             "inputs": [
-                { "name": "beneficiary", "type": "ADDRESS" }
+                {
+                    "name": "beneficiary",
+                    "type": "ADDRESS"
+                }
             ],
             "outputs": [
-                { "name": "amount", "type": "UINT256" }
+                {
+                    "name": "amount",
+                    "type": "UINT256"
+                }
             ]
         },
         {
@@ -94,10 +154,16 @@
             "payable": false,
             "onlyOwner": false,
             "inputs": [
-                { "name": "beneficiary", "type": "ADDRESS" }
+                {
+                    "name": "beneficiary",
+                    "type": "ADDRESS"
+                }
             ],
             "outputs": [
-                { "name": "amount", "type": "UINT256" }
+                {
+                    "name": "amount",
+                    "type": "UINT256"
+                }
             ]
         },
         {
@@ -107,7 +173,10 @@
             "onlyOwner": false,
             "inputs": [],
             "outputs": [
-                { "name": "amount", "type": "UINT256" }
+                {
+                    "name": "amount",
+                    "type": "UINT256"
+                }
             ]
         },
         {
@@ -117,7 +186,10 @@
             "onlyOwner": false,
             "inputs": [],
             "outputs": [
-                { "name": "amount", "type": "UINT256" }
+                {
+                    "name": "amount",
+                    "type": "UINT256"
+                }
             ]
         },
         {
@@ -127,7 +199,10 @@
             "onlyOwner": false,
             "inputs": [],
             "outputs": [
-                { "name": "token", "type": "ADDRESS" }
+                {
+                    "name": "token",
+                    "type": "ADDRESS"
+                }
             ]
         },
         {
@@ -137,7 +212,10 @@
             "onlyOwner": false,
             "inputs": [],
             "outputs": [
-                { "name": "ownerAddress", "type": "ADDRESS" }
+                {
+                    "name": "ownerAddress",
+                    "type": "ADDRESS"
+                }
             ]
         }
     ],
