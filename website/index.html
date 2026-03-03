@@ -923,16 +923,19 @@ Grand total     = 1700 = deposited ✓</div>
       });
       const json = await resp.json();
       const info = json?.result?.[address];
-      // For contracts: tweakedPubkey IS the contract hash.
-      // For wallets:   prefer mldsaHashedPublicKey; legacy = originalPubKey.
-      const primary = info?.mldsaHashedPublicKey ?? info?.tweakedPubkey;
-      const legacy  = info?.originalPubKey ?? info?.tweakedPubkey;
-      if (primary && _AddressClass) {
-        const p = primary.startsWith('0x') ? primary : '0x' + primary;
-        const l = legacy && legacy !== primary
-                    ? (legacy.startsWith('0x') ? legacy : '0x' + legacy)
-                    : undefined;
-        const addrObj = l ? _AddressClass.fromString(p, l) : _AddressClass.fromString(p);
+      // For contracts: tweakedPubkey IS the contract hash (single-param ok per mistake #19).
+      // For wallets:   ALWAYS use 2 params per mistake #6.
+      //   First  param = mldsaHashedPublicKey (32B hash) if available, else tweakedPubkey
+      //   Second param = tweakedPubkey (33B Bitcoin pubkey)
+      const mldsaHash = info?.mldsaHashedPublicKey;
+      const tweaked   = info?.tweakedPubkey;
+      const first     = mldsaHash ?? tweaked;
+      const second    = tweaked ?? first;
+      if (first && second && _AddressClass) {
+        const p = first.startsWith('0x')  ? first  : '0x' + first;
+        const l = second.startsWith('0x') ? second : '0x' + second;
+        // ALWAYS two params — Address.fromString(oneParam) crashes for wallet addresses
+        const addrObj = _AddressClass.fromString(p, l);
         if (addrObj) { _addrCache[address] = addrObj; return addrObj; }
       }
     } catch(e) { console.warn('[toAddr] raw RPC failed:', e.message); }
