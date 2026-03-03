@@ -1076,26 +1076,75 @@ Grand total     = 1700 = deposited ✓</div>
         document.getElementById('wallet-info').style.display = 'flex';
         document.getElementById('nav-connect-btn').style.display = 'none';
         info(`[connect] _AddressClass=${_AddressClass ? (_AddressClass.name||'loaded') : 'NULL'}`);
+        // ── Step A: get raw Bitcoin pubkey from wallet extension ──────────────
+        let rawPk = null;
         try {
           const ext = window.opnet || window.unisat;
-          info(`[connect] ext=${ext ? Object.keys(ext).slice(0,6).join(',') : 'null'} getPublicKey=${!!ext?.getPublicKey}`);
-          if (ext?.getPublicKey) {
-            const pk = await ext.getPublicKey();
-            info(`[connect] getPublicKey() returned: ${pk ? pk.slice(0,20)+'…' : 'null'}`);
-            if (pk) {
-              const addr = await toAddr(walletAddress);
-              info(`[connect] toAddr(wallet)=${addr ? 'ok' : 'null'}`);
-              if (addr) {
-                const pkHex = pk.startsWith('0x') ? pk.slice(2) : pk;
-                const pkBytes = new Uint8Array(pkHex.match(/.{2}/g).map(b => parseInt(b, 16)));
-                Object.defineProperty(addr, 'legacyPublicKey', { get: () => pkBytes, configurable: true });
-                _walletAddrObj = addr;
-              }
+          // Log ALL own + proto methods so we can see what the wallet exposes
+          const ownKeys = ext ? Object.keys(ext) : [];
+          const protoKeys = ext ? Object.getOwnPropertyNames(Object.getPrototypeOf(ext)||{}) : [];
+          info(`[connect] ext own: ${ownKeys.join(',')}`);
+          info(`[connect] ext proto: ${protoKeys.join(',')}`);
+          if (ext?.getPublicKey)  rawPk = await ext.getPublicKey();
+          if (!rawPk && ext?.getPublickey) rawPk = await ext.getPublickey(); // case variation
+          info(`[connect] rawPk=${rawPk ? rawPk.slice(0,20)+'…' : 'null'}`);
+
+          // ── Step B: check for ML-DSA key methods on wallet ─────────────────
+          let mldsaRaw = null;
+          for (const m of ['getHashedMLDSAKey','getMLDSAPublicKey','getMldsaPublicKey','getHashedMldsaKey']) {
+            if (typeof ext?.[m] === 'function') {
+              try { mldsaRaw = await ext[m](); info(`[connect] ${m}()=${mldsaRaw?.slice?.(0,20)}`); break; }
+              catch(e) { info(`[connect] ${m} threw: ${e.message}`); }
             }
           }
-        } catch(e) { info(`[connect] getPublicKey block threw: ${e.message}`); }
+
+          // ── Step C: build Address from pubkey if we have it ─────────────────
+          if (rawPk && _AddressClass) {
+            const pk33 = rawPk.startsWith('0x') ? rawPk : '0x' + rawPk;
+            // x-only = strip 02/03 prefix → 32-byte value
+            const pk33raw = pk33.slice(2); // strip 0x
+            const xOnly   = '0x' + (pk33raw.length === 66 ? pk33raw.slice(2) : pk33raw);
+            const mldsaHex = mldsaRaw ? (mldsaRaw.startsWith('0x') ? mldsaRaw : '0x'+mldsaRaw) : null;
+
+            const attempts = [
+              // Correct: mldsaHash(32B) + tweakedPubkey(33B)
+              mldsaHex ? () => _AddressClass.fromString(mldsaHex, pk33) : null,
+              // Fallback: xOnly(32B) as stand-in for mldsaHash + tweakedPubkey(33B)
+              () => _AddressClass.fromString(xOnly, pk33),
+              // Last resort: both same value
+              () => _AddressClass.fromString(pk33, pk33),
+            ].filter(Boolean);
+
+            for (const [i, fn] of attempts.entries()) {
+              try {
+                const a = fn();
+                if (a) {
+                  info(`[connect] Address built via attempt #${i+1} ✓`);
+                  const pkBytes = new Uint8Array(pk33raw.match(/.{2}/g).map(b=>parseInt(b,16)));
+                  try { Object.defineProperty(a,'legacyPublicKey',{get:()=>pkBytes,configurable:true}); } catch(_){}
+                  _walletAddrObj = a;
+                  _addrCache[walletAddress] = a;
+                  break;
+                }
+              } catch(e) { info(`[connect] attempt #${i+1} threw: ${e.message}`); }
+            }
+          }
+
+          // ── Step D: try provider.getPublicKeyInfo with hex pubkey (not bech32) ─
+          if (!_walletAddrObj && rawPk) {
+            const pk33 = rawPk.startsWith('0x') ? rawPk : '0x' + rawPk;
+            for (const flag of [false, true]) {
+              try {
+                const a = await _provider.getPublicKeyInfo(pk33, flag);
+                if (a) { info(`[connect] S-D pkHex flag=${flag} ok`); _walletAddrObj = a; _addrCache[walletAddress] = a; break; }
+              } catch(e) { info(`[connect] S-D flag=${flag} threw: ${e.message}`); }
+            }
+          }
+        } catch(e) { info(`[connect] pubkey block threw: ${e.message}`); }
+
+        // ── Step E: last resort — toAddr(bech32) ──────────────────────────────
         if (!_walletAddrObj) {
-          info('[connect] retrying toAddr fallback…');
+          info('[connect] step E: toAddr(bech32) fallback…');
           _walletAddrObj = await toAddr(walletAddress);
         }
         info(`[connect] _walletAddrObj=${_walletAddrObj ? 'SET ✓' : 'NULL ✗'}`);
