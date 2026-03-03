@@ -622,14 +622,14 @@ Grand total     = 1700 = deposited ✓</div>
         <div class="addr-card">
           <div class="addr-card-label">FeeVest Contract <span class="addr-card-tag">Vault</span></div>
           <div class="addr-row">
-            <input id="cfg-vault" class="addr-value" type="text" placeholder="0x… paste FeeVest address here" />
+            <input id="cfg-vault" class="addr-value" type="text" placeholder="opt1s… or 0x…" value="opt1sqpyvkfelp96jx4dqjfnrge7ka567wa050ynvkn5z" />
             <button class="copy-btn" title="Copy" onclick="copyAddr('cfg-vault',this)">⎘</button>
           </div>
         </div>
         <div class="addr-card">
           <div class="addr-card-label">Token Address <span class="addr-card-tag tag-cyan">OP_20</span></div>
           <div class="addr-row">
-            <input id="cfg-token" class="addr-value" type="text" placeholder="0x… the OP_20 token" />
+            <input id="cfg-token" class="addr-value" type="text" placeholder="opt1s… or 0x…" value="opt1sqqagqzgaa4q4wx8wmm0v29mqa2hyyvr5354m7lcf" />
             <button class="copy-btn" title="Copy" onclick="copyAddr('cfg-token',this)">⎘</button>
           </div>
         </div>
@@ -850,15 +850,20 @@ Grand total     = 1700 = deposited ✓</div>
   let _AddressClass = null;
   let _btcAddress = null;
   const _addrCache = {};
-  const _hexCache = {};   // bech32 → '0x...' hex for getContract() calls
+  // Pre-seed hex cache with deployed testnet contracts (used when RPC is unavailable).
+  // These are the tweakedPubkey hashes from OPScan.
+  const _hexCache = {
+    'opt1sqpyvkfelp96jx4dqjfnrge7ka567wa050ynvkn5z': '0x2242828d39997f585b6f11a72935406ddf8773af55cb5fbdaee5ee51c343ceb1',
+    'opt1sqqagqzgaa4q4wx8wmm0v29mqa2hyyvr5354m7lcf':  '0x7a84406f37183bf5ec69de576e8e99b628635650ce82ee4b17d9efceeba25ad1',
+  };
   let _ownerAddrForSim = null;
 
   // Resolves any address format to a '0x...' hex string suitable for getContract().
-  // Contract addresses (opt1s/op1s) are looked up via raw RPC btc_getPublicKeyInfo.
   async function resolveHex(address) {
     if (!address) return null;
     if (address.startsWith('0x')) return address;
     if (_hexCache[address]) return _hexCache[address];
+    // Try RPC
     try {
       const resp = await fetch(RPC_URL, {
         method: 'POST',
@@ -867,14 +872,27 @@ Grand total     = 1700 = deposited ✓</div>
                                params: [address], id: 1 })
       });
       const json = await resp.json();
-      const info = json?.result?.[address];
-      const hash = info?.tweakedPubkey;
+      const inf = json?.result?.[address];
+      const hash = inf?.tweakedPubkey;
       if (hash) {
         const hex = hash.startsWith('0x') ? hash : '0x' + hash;
         _hexCache[address] = hex;
         return hex;
       }
-    } catch(e) { console.warn('[resolveHex] failed for', address, e.message); }
+    } catch(e) { console.warn('[resolveHex] RPC failed for', address, e.message); }
+    // Fallback: bech32-decode the address to get the 32-byte witness program
+    if (_btcAddress) {
+      try {
+        const decoded = _btcAddress.fromBech32(address);
+        if (decoded?.data?.length >= 32) {
+          const bytes = Array.from(decoded.data).slice(0, 32);
+          const hex = '0x' + bytes.map(b => b.toString(16).padStart(2,'0')).join('');
+          console.log('[resolveHex] bech32 decoded:', address, '→', hex);
+          _hexCache[address] = hex;
+          return hex;
+        }
+      } catch(e) { console.warn('[resolveHex] bech32 decode failed:', e.message); }
+    }
     return null;
   }
 
@@ -903,12 +921,36 @@ Grand total     = 1700 = deposited ✓</div>
     if (_addrCache[address]) return _addrCache[address];
     info(`[toAddr] resolving: ${address.slice(0,20)}… _AddressClass=${_AddressClass ? _AddressClass.name || 'loaded' : 'NULL'}`);
 
-    // ── Strategy 1: 0x hex → Address.fromString directly (no RPC needed). ────
+    // ── Strategy 1: 0x hex → Address.fromString directly (1 param for contracts). ──
     if (address.startsWith('0x') && _AddressClass) {
       try {
         const addrObj = _AddressClass.fromString(address);
         if (addrObj) { info('[toAddr] S1 ok'); _addrCache[address] = addrObj; return addrObj; }
       } catch(e) { info(`[toAddr] S1 fail: ${e.message}`); }
+    }
+
+    // ── Strategy 1.5: bech32 contract → cached/decoded hex → fromString(1 param). ─
+    // Used when RPC is unavailable. Works for opt1s (P2OP) contracts.
+    if (!address.startsWith('0x') && _AddressClass) {
+      const knownHex = _hexCache[address];
+      if (knownHex) {
+        try {
+          const addrObj = _AddressClass.fromString(knownHex);
+          if (addrObj) { info('[toAddr] S1.5 cache ok'); _addrCache[address] = addrObj; return addrObj; }
+        } catch(e) { info(`[toAddr] S1.5 cache fail: ${e.message}`); }
+      }
+      // Also try bech32 decode via btcAddress library
+      if (_btcAddress) {
+        try {
+          const decoded = _btcAddress.fromBech32(address);
+          if (decoded?.data?.length >= 32) {
+            const bytes = Array.from(decoded.data).slice(0, 32);
+            const hex = '0x' + bytes.map(b => b.toString(16).padStart(2,'0')).join('');
+            const addrObj = _AddressClass.fromString(hex);
+            if (addrObj) { info('[toAddr] S1.5 bech32 ok → ' + hex.slice(0,12)); _addrCache[address] = addrObj; _hexCache[address] = hex; return addrObj; }
+          }
+        } catch(e) { info(`[toAddr] S1.5 bech32 fail: ${e.message}`); }
+      }
     }
 
     // ── Strategy 2: bech32 → raw RPC → tweakedPubkey. ─────────────────────
