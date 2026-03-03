@@ -931,27 +931,24 @@ Grand total     = 1700 = deposited ✓</div>
   async function toAddr(address) {
     if (!address) return null;
     if (_addrCache[address]) return _addrCache[address];
-    info(`[toAddr] resolving: ${address.slice(0,20)}… _AddressClass=${_AddressClass ? _AddressClass.name || 'loaded' : 'NULL'}`);
 
     // ── Strategy 1: 0x hex → Address.fromString directly (1 param for contracts). ──
     if (address.startsWith('0x') && _AddressClass) {
       try {
         const addrObj = _AddressClass.fromString(address);
-        if (addrObj) { info('[toAddr] S1 ok'); _addrCache[address] = addrObj; return addrObj; }
-      } catch(e) { info(`[toAddr] S1 fail: ${e.message}`); }
+        if (addrObj) { _addrCache[address] = addrObj; return addrObj; }
+      } catch(e) { console.warn('[toAddr] S1:', e.message); }
     }
 
     // ── Strategy 1.5: bech32 contract → cached/decoded hex → fromString(1 param). ─
-    // Used when RPC is unavailable. Works for opt1s (P2OP) contracts.
     if (!address.startsWith('0x') && _AddressClass) {
       const knownHex = _hexCache[address];
       if (knownHex) {
         try {
           const addrObj = _AddressClass.fromString(knownHex);
-          if (addrObj) { info('[toAddr] S1.5 cache ok'); _addrCache[address] = addrObj; return addrObj; }
-        } catch(e) { info(`[toAddr] S1.5 cache fail: ${e.message}`); }
+          if (addrObj) { _addrCache[address] = addrObj; return addrObj; }
+        } catch(e) { console.warn('[toAddr] S1.5 cache:', e.message); }
       }
-      // Also try bech32 decode via btcAddress library
       if (_btcAddress) {
         try {
           const decoded = _btcAddress.fromBech32(address);
@@ -959,9 +956,9 @@ Grand total     = 1700 = deposited ✓</div>
             const bytes = Array.from(decoded.data).slice(0, 32);
             const hex = '0x' + bytes.map(b => b.toString(16).padStart(2,'0')).join('');
             const addrObj = _AddressClass.fromString(hex);
-            if (addrObj) { info('[toAddr] S1.5 bech32 ok → ' + hex.slice(0,12)); _addrCache[address] = addrObj; _hexCache[address] = hex; return addrObj; }
+            if (addrObj) { _addrCache[address] = addrObj; _hexCache[address] = hex; return addrObj; }
           }
-        } catch(e) { info(`[toAddr] S1.5 bech32 fail: ${e.message}`); }
+        } catch(e) { console.warn('[toAddr] S1.5 bech32:', e.message); }
       }
     }
 
@@ -974,11 +971,9 @@ Grand total     = 1700 = deposited ✓</div>
                                params: [address], id: 1 })
       });
       const json = await resp.json();
-      const info2 = json?.result?.[address];
-      info(`[toAddr] S2 RPC result keys: ${info2 ? Object.keys(info2).join(', ') : 'null'}`);
-      info(`[toAddr] S2 mldsaHash=${info2?.mldsaHashedPublicKey?.slice?.(0,10)||'null'} tweaked=${info2?.tweakedPubkey?.slice?.(0,10)||'null'}`);
-      const mldsaHash = info2?.mldsaHashedPublicKey;
-      const tweaked   = info2?.tweakedPubkey;
+      const rpcInfo = json?.result?.[address];
+      const mldsaHash = rpcInfo?.mldsaHashedPublicKey;
+      const tweaked   = rpcInfo?.tweakedPubkey;
       const first     = mldsaHash ?? tweaked;
       const second    = tweaked ?? first;
       if (first && second && _AddressClass) {
@@ -986,23 +981,20 @@ Grand total     = 1700 = deposited ✓</div>
         const l = second.startsWith('0x') ? second : '0x' + second;
         try {
           const addrObj = _AddressClass.fromString(p, l);
-          if (addrObj) { info('[toAddr] S2 ok'); _addrCache[address] = addrObj; return addrObj; }
-          else { info('[toAddr] S2 fromString returned falsy'); }
-        } catch(e) { info(`[toAddr] S2 fromString threw: ${e.message}`); }
-      } else {
-        info(`[toAddr] S2 skip: first=${!!first} second=${!!second} AddressClass=${!!_AddressClass}`);
+          if (addrObj) { _addrCache[address] = addrObj; return addrObj; }
+        } catch(e) { console.warn('[toAddr] S2 fromString:', e.message); }
       }
-    } catch(e) { info(`[toAddr] S2 fetch err: ${e.message}`); }
+    } catch(e) { console.warn('[toAddr] S2 RPC:', e.message); }
 
     // ── Strategy 3: opnet library provider (try both isContract flags). ─────
     for (const flag of [false, true]) {
       try {
         const addrObj = await _provider.getPublicKeyInfo(address, flag);
-        if (addrObj) { info(`[toAddr] S3(${flag}) ok`); _addrCache[address] = addrObj; return addrObj; }
-      } catch(e) { info(`[toAddr] S3(${flag}) threw: ${e.message}`); }
+        if (addrObj) { _addrCache[address] = addrObj; return addrObj; }
+      } catch(_) {}
     }
 
-    info('[toAddr] ALL strategies failed → null');
+    console.warn('[toAddr] all strategies failed for', address);
     return null;
   }
 
@@ -1134,79 +1126,62 @@ Grand total     = 1700 = deposited ✓</div>
         document.getElementById('wallet-short').textContent = walletAddress.slice(0,10) + '…';
         document.getElementById('wallet-info').style.display = 'flex';
         document.getElementById('nav-connect-btn').style.display = 'none';
-        info(`[connect] _AddressClass=${_AddressClass ? (_AddressClass.name||'loaded') : 'NULL'}`);
-        // ── Step A: get raw Bitcoin pubkey from wallet extension ──────────────
+        // ── Step A: get Bitcoin pubkey + ML-DSA key from wallet extension ────
         let rawPk = null;
         try {
           const ext = window.opnet || window.unisat;
-          // Log ALL own + proto methods so we can see what the wallet exposes
-          const ownKeys = ext ? Object.keys(ext) : [];
-          const protoKeys = ext ? Object.getOwnPropertyNames(Object.getPrototypeOf(ext)||{}) : [];
-          info(`[connect] ext own: ${ownKeys.join(',')}`);
-          info(`[connect] ext proto: ${protoKeys.join(',')}`);
           if (ext?.getPublicKey)  rawPk = await ext.getPublicKey();
-          if (!rawPk && ext?.getPublickey) rawPk = await ext.getPublickey(); // case variation
-          info(`[connect] rawPk=${rawPk ? rawPk.slice(0,20)+'…' : 'null'}`);
+          if (!rawPk && ext?.getPublickey) rawPk = await ext.getPublickey();
 
-          // ── Step B: check for ML-DSA key methods on wallet ─────────────────
+          // ── Step B: ML-DSA hash from wallet if available ──────────────────
           let mldsaRaw = null;
           for (const m of ['getHashedMLDSAKey','getMLDSAPublicKey','getMldsaPublicKey','getHashedMldsaKey']) {
             if (typeof ext?.[m] === 'function') {
-              try { mldsaRaw = await ext[m](); info(`[connect] ${m}()=${mldsaRaw?.slice?.(0,20)}`); break; }
-              catch(e) { info(`[connect] ${m} threw: ${e.message}`); }
+              try { mldsaRaw = await ext[m](); break; } catch(_) {}
             }
           }
 
-          // ── Step C: build Address from pubkey if we have it ─────────────────
+          // ── Step C: build Address from pubkey ────────────────────────────
           if (rawPk && _AddressClass) {
             const pk33 = rawPk.startsWith('0x') ? rawPk : '0x' + rawPk;
-            // x-only = strip 02/03 prefix → 32-byte value
-            const pk33raw = pk33.slice(2); // strip 0x
+            const pk33raw = pk33.slice(2);
             const xOnly   = '0x' + (pk33raw.length === 66 ? pk33raw.slice(2) : pk33raw);
             const mldsaHex = mldsaRaw ? (mldsaRaw.startsWith('0x') ? mldsaRaw : '0x'+mldsaRaw) : null;
 
             const attempts = [
-              // Correct: mldsaHash(32B) + tweakedPubkey(33B)
               mldsaHex ? () => _AddressClass.fromString(mldsaHex, pk33) : null,
-              // Fallback: xOnly(32B) as stand-in for mldsaHash + tweakedPubkey(33B)
               () => _AddressClass.fromString(xOnly, pk33),
-              // Last resort: both same value
               () => _AddressClass.fromString(pk33, pk33),
             ].filter(Boolean);
 
-            for (const [i, fn] of attempts.entries()) {
+            for (const fn of attempts) {
               try {
                 const a = fn();
                 if (a) {
-                  info(`[connect] Address built via attempt #${i+1} ✓`);
                   const pkBytes = new Uint8Array(pk33raw.match(/.{2}/g).map(b=>parseInt(b,16)));
                   try { Object.defineProperty(a,'legacyPublicKey',{get:()=>pkBytes,configurable:true}); } catch(_){}
                   _walletAddrObj = a;
                   _addrCache[walletAddress] = a;
                   break;
                 }
-              } catch(e) { info(`[connect] attempt #${i+1} threw: ${e.message}`); }
+              } catch(_) {}
             }
           }
 
-          // ── Step D: try provider.getPublicKeyInfo with hex pubkey (not bech32) ─
+          // ── Step D: provider.getPublicKeyInfo with hex pubkey ─────────────
           if (!_walletAddrObj && rawPk) {
             const pk33 = rawPk.startsWith('0x') ? rawPk : '0x' + rawPk;
             for (const flag of [false, true]) {
               try {
                 const a = await _provider.getPublicKeyInfo(pk33, flag);
-                if (a) { info(`[connect] S-D pkHex flag=${flag} ok`); _walletAddrObj = a; _addrCache[walletAddress] = a; break; }
-              } catch(e) { info(`[connect] S-D flag=${flag} threw: ${e.message}`); }
+                if (a) { _walletAddrObj = a; _addrCache[walletAddress] = a; break; }
+              } catch(_) {}
             }
           }
-        } catch(e) { info(`[connect] pubkey block threw: ${e.message}`); }
+        } catch(e) { console.warn('[connect] pubkey block:', e.message); }
 
-        // ── Step E: last resort — toAddr(bech32) ──────────────────────────────
-        if (!_walletAddrObj) {
-          info('[connect] step E: toAddr(bech32) fallback…');
-          _walletAddrObj = await toAddr(walletAddress);
-        }
-        info(`[connect] _walletAddrObj=${_walletAddrObj ? 'SET ✓' : 'NULL ✗'}`);
+        // ── Step E: last resort — toAddr(bech32) ─────────────────────────────
+        if (!_walletAddrObj) _walletAddrObj = await toAddr(walletAddress);
       }
 
       document.getElementById('dash-gate').style.display = 'none';
@@ -1293,7 +1268,7 @@ Grand total     = 1700 = deposited ✓</div>
     return true;
   }
 
-  async function sendTxRetry(label, simFn, maxRetries = 8, delayMs = 5000) {
+  async function sendTxRetry(label, simFn, maxRetries = 20, delayMs = 10000) {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       if (attempt > 1) {
         info(`${label}: allowance not yet confirmed, retrying in ${delayMs / 1000}s… (${attempt}/${maxRetries})`);
