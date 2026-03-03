@@ -874,48 +874,48 @@ Grand total     = 1700 = deposited ✓</div>
   async function toAddr(address) {
     if (!address) return null;
     if (_addrCache[address]) return _addrCache[address];
-    // P2OP contract addresses start with opt1s/op1s (or are 0x hex).
-    // P2TR wallet addresses start with opt1p/op1p. Using wrong isContract flag
-    // causes the provider wrapper to fail silently → null result.
-    const isContractBech32 = /^(opt1s|op1s)/i.test(address);
-    const isContract = address.startsWith('0x') || isContractBech32;
-    const flags = isContract ? [true, false] : [false, true];
-    for (const flag of flags) {
+
+    // ── Strategy 1: 0x hex → Address.fromString directly (no RPC needed). ────
+    // Per OPNet docs: Address.fromString(hexAddr) works for contracts with 1 param.
+    if (address.startsWith('0x') && _AddressClass) {
       try {
-        const info = await _provider.getPublicKeyInfo(address, flag);
-        if (!info) continue;
-        // Provider may return an Address instance or raw RPC info object.
-        if (typeof info.equals === 'function' || typeof info.toHex === 'function') {
-          _addrCache[address] = info; return info;
-        }
-        // Raw RPC object → extract tweakedPubkey and create Address.
-        const raw = info[address] || info;
-        const hash = raw.tweakedPubkey || raw.contractHash || raw.p2op;
-        if (hash && _AddressClass) {
-          const hex = hash.startsWith('0x') ? hash : '0x' + hash;
-          const addrObj = _AddressClass.fromString(hex);
-          if (addrObj) { _addrCache[address] = addrObj; return addrObj; }
-        }
-        // If info itself looks truthy and we have no better option, return it.
-        _addrCache[address] = info; return info;
-      } catch(_) {}
+        const addrObj = _AddressClass.fromString(address);
+        if (addrObj) { _addrCache[address] = addrObj; return addrObj; }
+      } catch(e) { console.warn('[toAddr] fromString 0x failed:', e.message); }
     }
-    if (_AddressClass) {
-      try {
-        let hex;
-        if (address.startsWith('0x')) {
-          hex = address;
-        } else if (_btcAddress) {
-          const decoded = _btcAddress.fromBech32(address);
-          // bech32 data may need convertbits (5→8). Use raw bytes directly.
-          hex = '0x' + Array.from(decoded.data).map(b => b.toString(16).padStart(2, '0')).join('');
-        }
-        if (hex) {
-          const addrObj = _AddressClass.fromString(hex);
-          if (addrObj) { _addrCache[address] = addrObj; return addrObj; }
-        }
-      } catch(e) { console.warn('toAddr fallback failed for', address, ':', e.message); }
-    }
+
+    // ── Strategy 2: bech32 (opt1.../op1...) → raw RPC fetch → tweakedPubkey. ─
+    // The opnet library wrapper may mis-key the response for bech32 addresses;
+    // a direct POST to the RPC avoids that issue entirely.
+    try {
+      const resp = await fetch(RPC_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getPublicKeyInfo',
+                               params: [address], id: 1 })
+      });
+      const json = await resp.json();
+      const info = json?.result?.[address];
+      // For contracts: tweakedPubkey IS the contract hash.
+      // For wallets:   prefer mldsaHashedPublicKey; legacy = originalPubKey.
+      const primary = info?.mldsaHashedPublicKey ?? info?.tweakedPubkey;
+      const legacy  = info?.originalPubKey ?? info?.tweakedPubkey;
+      if (primary && _AddressClass) {
+        const p = primary.startsWith('0x') ? primary : '0x' + primary;
+        const l = legacy && legacy !== primary
+                    ? (legacy.startsWith('0x') ? legacy : '0x' + legacy)
+                    : undefined;
+        const addrObj = l ? _AddressClass.fromString(p, l) : _AddressClass.fromString(p);
+        if (addrObj) { _addrCache[address] = addrObj; return addrObj; }
+      }
+    } catch(e) { console.warn('[toAddr] raw RPC failed:', e.message); }
+
+    // ── Strategy 3: opnet library provider fallback. ──────────────────────────
+    try {
+      const addrObj = await _provider.getPublicKeyInfo(address, false);
+      if (addrObj) { _addrCache[address] = addrObj; return addrObj; }
+    } catch(_) {}
+
     return null;
   }
 
