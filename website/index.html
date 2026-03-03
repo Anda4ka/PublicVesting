@@ -901,19 +901,17 @@ Grand total     = 1700 = deposited ✓</div>
   async function toAddr(address) {
     if (!address) return null;
     if (_addrCache[address]) return _addrCache[address];
+    info(`[toAddr] resolving: ${address.slice(0,20)}… _AddressClass=${_AddressClass ? _AddressClass.name || 'loaded' : 'NULL'}`);
 
     // ── Strategy 1: 0x hex → Address.fromString directly (no RPC needed). ────
-    // Per OPNet docs: Address.fromString(hexAddr) works for contracts with 1 param.
     if (address.startsWith('0x') && _AddressClass) {
       try {
         const addrObj = _AddressClass.fromString(address);
-        if (addrObj) { _addrCache[address] = addrObj; return addrObj; }
-      } catch(e) { console.warn('[toAddr] fromString 0x failed:', e.message); }
+        if (addrObj) { info('[toAddr] S1 ok'); _addrCache[address] = addrObj; return addrObj; }
+      } catch(e) { info(`[toAddr] S1 fail: ${e.message}`); }
     }
 
-    // ── Strategy 2: bech32 (opt1.../op1...) → raw RPC fetch → tweakedPubkey. ─
-    // The opnet library wrapper may mis-key the response for bech32 addresses;
-    // a direct POST to the RPC avoids that issue entirely.
+    // ── Strategy 2: bech32 → raw RPC → tweakedPubkey. ─────────────────────
     try {
       const resp = await fetch(RPC_URL, {
         method: 'POST',
@@ -922,34 +920,35 @@ Grand total     = 1700 = deposited ✓</div>
                                params: [address], id: 1 })
       });
       const json = await resp.json();
-      const info = json?.result?.[address];
-      // For contracts: tweakedPubkey IS the contract hash (single-param ok per mistake #19).
-      // For wallets:   ALWAYS use 2 params per mistake #6.
-      //   First  param = mldsaHashedPublicKey (32B hash) if available, else tweakedPubkey
-      //   Second param = tweakedPubkey (33B Bitcoin pubkey)
-      const mldsaHash = info?.mldsaHashedPublicKey;
-      const tweaked   = info?.tweakedPubkey;
+      const info2 = json?.result?.[address];
+      info(`[toAddr] S2 RPC result keys: ${info2 ? Object.keys(info2).join(', ') : 'null'}`);
+      info(`[toAddr] S2 mldsaHash=${info2?.mldsaHashedPublicKey?.slice?.(0,10)||'null'} tweaked=${info2?.tweakedPubkey?.slice?.(0,10)||'null'}`);
+      const mldsaHash = info2?.mldsaHashedPublicKey;
+      const tweaked   = info2?.tweakedPubkey;
       const first     = mldsaHash ?? tweaked;
       const second    = tweaked ?? first;
       if (first && second && _AddressClass) {
         const p = first.startsWith('0x')  ? first  : '0x' + first;
         const l = second.startsWith('0x') ? second : '0x' + second;
-        // ALWAYS two params — Address.fromString(oneParam) crashes for wallet addresses
-        const addrObj = _AddressClass.fromString(p, l);
-        if (addrObj) { _addrCache[address] = addrObj; return addrObj; }
+        try {
+          const addrObj = _AddressClass.fromString(p, l);
+          if (addrObj) { info('[toAddr] S2 ok'); _addrCache[address] = addrObj; return addrObj; }
+          else { info('[toAddr] S2 fromString returned falsy'); }
+        } catch(e) { info(`[toAddr] S2 fromString threw: ${e.message}`); }
+      } else {
+        info(`[toAddr] S2 skip: first=${!!first} second=${!!second} AddressClass=${!!_AddressClass}`);
       }
-    } catch(e) { console.warn('[toAddr] raw RPC failed:', e.message); }
+    } catch(e) { info(`[toAddr] S2 fetch err: ${e.message}`); }
 
-    // ── Strategy 3: opnet library provider (try both isContract flags). ─────────
-    // isContract=false requires mldsaHashedPublicKey; some wallets only have
-    // tweakedPubkey. isContract=true falls back to tweakedPubkey, covering both.
+    // ── Strategy 3: opnet library provider (try both isContract flags). ─────
     for (const flag of [false, true]) {
       try {
         const addrObj = await _provider.getPublicKeyInfo(address, flag);
-        if (addrObj) { _addrCache[address] = addrObj; return addrObj; }
-      } catch(_) {}
+        if (addrObj) { info(`[toAddr] S3(${flag}) ok`); _addrCache[address] = addrObj; return addrObj; }
+      } catch(e) { info(`[toAddr] S3(${flag}) threw: ${e.message}`); }
     }
 
+    info('[toAddr] ALL strategies failed → null');
     return null;
   }
 
@@ -1076,12 +1075,16 @@ Grand total     = 1700 = deposited ✓</div>
         document.getElementById('wallet-short').textContent = walletAddress.slice(0,10) + '…';
         document.getElementById('wallet-info').style.display = 'flex';
         document.getElementById('nav-connect-btn').style.display = 'none';
+        info(`[connect] _AddressClass=${_AddressClass ? (_AddressClass.name||'loaded') : 'NULL'}`);
         try {
           const ext = window.opnet || window.unisat;
+          info(`[connect] ext=${ext ? Object.keys(ext).slice(0,6).join(',') : 'null'} getPublicKey=${!!ext?.getPublicKey}`);
           if (ext?.getPublicKey) {
             const pk = await ext.getPublicKey();
+            info(`[connect] getPublicKey() returned: ${pk ? pk.slice(0,20)+'…' : 'null'}`);
             if (pk) {
               const addr = await toAddr(walletAddress);
+              info(`[connect] toAddr(wallet)=${addr ? 'ok' : 'null'}`);
               if (addr) {
                 const pkHex = pk.startsWith('0x') ? pk.slice(2) : pk;
                 const pkBytes = new Uint8Array(pkHex.match(/.{2}/g).map(b => parseInt(b, 16)));
@@ -1090,8 +1093,12 @@ Grand total     = 1700 = deposited ✓</div>
               }
             }
           }
-        } catch(e) { console.warn('getPublicKey setup failed:', e.message); }
-        if (!_walletAddrObj) _walletAddrObj = await toAddr(walletAddress);
+        } catch(e) { info(`[connect] getPublicKey block threw: ${e.message}`); }
+        if (!_walletAddrObj) {
+          info('[connect] retrying toAddr fallback…');
+          _walletAddrObj = await toAddr(walletAddress);
+        }
+        info(`[connect] _walletAddrObj=${_walletAddrObj ? 'SET ✓' : 'NULL ✗'}`);
       }
 
       document.getElementById('dash-gate').style.display = 'none';
