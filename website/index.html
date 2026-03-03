@@ -937,11 +937,15 @@ Grand total     = 1700 = deposited ✓</div>
       }
     } catch(e) { console.warn('[toAddr] raw RPC failed:', e.message); }
 
-    // ── Strategy 3: opnet library provider fallback. ──────────────────────────
-    try {
-      const addrObj = await _provider.getPublicKeyInfo(address, false);
-      if (addrObj) { _addrCache[address] = addrObj; return addrObj; }
-    } catch(_) {}
+    // ── Strategy 3: opnet library provider (try both isContract flags). ─────────
+    // isContract=false requires mldsaHashedPublicKey; some wallets only have
+    // tweakedPubkey. isContract=true falls back to tweakedPubkey, covering both.
+    for (const flag of [false, true]) {
+      try {
+        const addrObj = await _provider.getPublicKeyInfo(address, flag);
+        if (addrObj) { _addrCache[address] = addrObj; return addrObj; }
+      } catch(_) {}
+    }
 
     return null;
   }
