@@ -688,13 +688,13 @@ export class FeeVest extends OP_NET {
     /**
      * Cross-contract call: OP20 transferFrom(from, vault, amount).
      * Used to pull tokens from a depositor who has pre-approved this contract.
-     * Note: `to` is always Blockchain.contract.address (this vault), never tx.origin.
+     * Note: `to` is always Blockchain.contractAddress (this vault), never tx.origin.
      */
     private callTransferFrom(token: Address, from: Address, amount: u256): void {
         const writer = new BytesWriter(4 + 32 + 32 + 32);
         writer.writeSelector(FeeVest.TRANSFER_FROM_SELECTOR);
         writer.writeAddress(from);
-        writer.writeAddress(Blockchain.contract.address); // spender = this vault
+        writer.writeAddress(Blockchain.contractAddress); // spender = this vault
         writer.writeU256(amount);
 
         const result: CallResult = Blockchain.call(token, writer, true);
