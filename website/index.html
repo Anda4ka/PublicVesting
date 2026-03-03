@@ -850,14 +850,41 @@ Grand total     = 1700 = deposited ✓</div>
   let _AddressClass = null;
   let _btcAddress = null;
   const _addrCache = {};
+  const _hexCache = {};   // bech32 → '0x...' hex for getContract() calls
   let _ownerAddrForSim = null;
+
+  // Resolves any address format to a '0x...' hex string suitable for getContract().
+  // Contract addresses (opt1s/op1s) are looked up via raw RPC btc_getPublicKeyInfo.
+  async function resolveHex(address) {
+    if (!address) return null;
+    if (address.startsWith('0x')) return address;
+    if (_hexCache[address]) return _hexCache[address];
+    try {
+      const resp = await fetch(RPC_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getPublicKeyInfo',
+                               params: [address], id: 1 })
+      });
+      const json = await resp.json();
+      const info = json?.result?.[address];
+      const hash = info?.tweakedPubkey;
+      if (hash) {
+        const hex = hash.startsWith('0x') ? hash : '0x' + hash;
+        _hexCache[address] = hex;
+        return hex;
+      }
+    } catch(e) { console.warn('[resolveHex] failed for', address, e.message); }
+    return null;
+  }
 
   async function getFromAddr() {
     if (_ownerAddrForSim) return _ownerAddrForSim;
     const cfg = getCfg();
     if (!cfg.vault || !_opnet) return _walletAddrObj;
     try {
-      const c = _opnet.getContract(cfg.vault, FEEVEST_ABI, _provider, _network, _walletAddrObj);
+      const vaultHex = await resolveHex(cfg.vault);
+      const c = _opnet.getContract(vaultHex || cfg.vault, FEEVEST_ABI, _provider, _network, _walletAddrObj);
       const ownerR = await c.owner();
       const ownerAddr = ownerR?.properties?.ownerAddress;
       if (ownerAddr) {
@@ -1075,7 +1102,8 @@ Grand total     = 1700 = deposited ✓</div>
       info('Loading vault state…');
       const { getContract } = _opnet;
       const fromAddr = _walletAddrObj || await toAddr(cfg.vault);
-      const c = getContract(cfg.vault, FEEVEST_ABI, _provider, _network, fromAddr);
+      const vaultHex = await resolveHex(cfg.vault);
+      const c = getContract(vaultHex || cfg.vault, FEEVEST_ABI, _provider, _network, fromAddr);
 
       const [lockedR, revR] = await Promise.all([c.totalLocked(), c.totalRevenueDeposited()]);
       const locked = lockedR.properties?.amount ?? 0n;
@@ -1175,7 +1203,8 @@ Grand total     = 1700 = deposited ✓</div>
     const { vault } = getCfg(); if (!vault) { warn('Set vault address'); return; }
     try {
       const from = await getFromAddr();
-      const c = _opnet.getContract(vault, FEEVEST_ABI, _provider, _network, from);
+      const vaultHex = await resolveHex(vault);
+      const c = _opnet.getContract(vaultHex || vault, FEEVEST_ABI, _provider, _network, from);
       if (await sendTx('release()', () => c.release())) await loadDashboard();
     } catch(e) { err('release() failed: ' + e.message); }
   };
@@ -1185,7 +1214,8 @@ Grand total     = 1700 = deposited ✓</div>
     const { vault } = getCfg(); if (!vault) { warn('Set vault address'); return; }
     try {
       const from = await getFromAddr();
-      const c = _opnet.getContract(vault, FEEVEST_ABI, _provider, _network, from);
+      const vaultHex = await resolveHex(vault);
+      const c = _opnet.getContract(vaultHex || vault, FEEVEST_ABI, _provider, _network, from);
       if (await sendTx('claimRevenue()', () => c.claimRevenue())) await loadDashboard();
     } catch(e) { err('claimRevenue() failed: ' + e.message); }
   };
@@ -1199,10 +1229,10 @@ Grand total     = 1700 = deposited ✓</div>
       const ab = parseTokenAmount(amount);
       if (!ab || ab <= 0n) { warn('Invalid amount — enter a number like 1 or 1.5'); return; }
       const from = await getFromAddr();
-      const vaultAddr = await toAddr(vault);
-      const tok = _opnet.getContract(token, OP20_ABI, _provider, _network, from);
+      const [vaultAddr, vaultHex, tokenHex] = await Promise.all([toAddr(vault), resolveHex(vault), resolveHex(token)]);
+      const tok = _opnet.getContract(tokenHex || token, OP20_ABI, _provider, _network, from);
       if (!await sendTx('increaseAllowance()', () => tok.increaseAllowance(vaultAddr, ab))) return;
-      const c = _opnet.getContract(vault, FEEVEST_ABI, _provider, _network, from);
+      const c = _opnet.getContract(vaultHex || vault, FEEVEST_ABI, _provider, _network, from);
       if (await sendTxRetry('depositRevenue()', () => c.depositRevenue(ab))) await loadDashboard();
     } catch(e) { err('depositRevenue() failed: ' + e.message); }
   };
@@ -1221,14 +1251,16 @@ Grand total     = 1700 = deposited ✓</div>
       const cb = BigInt(clf), db = BigInt(dur);
       if (db === 0n) { warn('Duration must be > 0'); return; }
       if (cb > db) { warn('Cliff cannot exceed duration'); return; }
-      const [benAddr, vaultAddr, from] = await Promise.all([toAddr(ben), toAddr(vault), getFromAddr()]);
+      const [benAddr, vaultAddr, vaultHex, tokenHex, from] = await Promise.all([
+        toAddr(ben), toAddr(vault), resolveHex(vault), resolveHex(token), getFromAddr()
+      ]);
       if (!benAddr) { err('Could not resolve beneficiary address'); return; }
       if (!vaultAddr) { err('Could not resolve vault address'); return; }
       // Step 1: approve
-      const tok = _opnet.getContract(token, OP20_ABI, _provider, _network, from);
+      const tok = _opnet.getContract(tokenHex || token, OP20_ABI, _provider, _network, from);
       if (!await sendTx('increaseAllowance()', () => tok.increaseAllowance(vaultAddr, ab))) return;
       // Step 2: depositAndVest — amount FIRST (matches contract ABI order)
-      const c = _opnet.getContract(vault, FEEVEST_ABI, _provider, _network, from);
+      const c = _opnet.getContract(vaultHex || vault, FEEVEST_ABI, _provider, _network, from);
       if (await sendTxRetry('depositAndVest()', () => c.depositAndVest(ab, benAddr, cb, db))) {
         ok(`Vesting created for ${ben.slice(0,14)}…`);
         await loadDashboard();
@@ -1241,9 +1273,9 @@ Grand total     = 1700 = deposited ✓</div>
     const { vault, token } = getCfg();
     if (!vault || !token) { warn('Fill vault and token addresses'); return; }
     try {
-      const [tokenAddr, from] = await Promise.all([toAddr(token), getFromAddr()]);
+      const [tokenAddr, vaultHex, from] = await Promise.all([toAddr(token), resolveHex(vault), getFromAddr()]);
       if (!tokenAddr) { err('Could not resolve token address'); return; }
-      const c = _opnet.getContract(vault, FEEVEST_ABI, _provider, _network, from);
+      const c = _opnet.getContract(vaultHex || vault, FEEVEST_ABI, _provider, _network, from);
       if (await sendTx('initialize()', () => c.initialize(tokenAddr))) {
         ok('FeeVest initialized! Token address set.');
         await loadDashboard();
